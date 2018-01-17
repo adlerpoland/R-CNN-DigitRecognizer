@@ -11,7 +11,7 @@ train.csv and test.csv files available after signing in on:
 https://www.kaggle.com/c/digit-recognizer/data
 
 Optionaly you can download 80mb compressed .rar file containing CNN build with 1000 iterations
-https://drive.google.com/open?id=18sFhN_ttaayLOpgBX7KJuOo-DdE8sd6_
+[GOOGLE DRIVE](https://drive.google.com/open?id=18sFhN_ttaayLOpgBX7KJuOo-DdE8sd6_)
 
 ## Default settings:
 
