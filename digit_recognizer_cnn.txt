@@ -1,0 +1,298 @@
+##################################################
+####Step 0: install required packages also note that we will need python to be installed on our PC
+install.packages("tensorflow")
+install.packages("magrittr")
+
+library(tensorflow)
+install_tensorflow()
+
+
+##################################################
+####Step 1: loading required packages
+library(tensorflow)
+library(magrittr)
+
+
+##################################################
+####Step 2: loading data files
+currentPath <- "G:/Studia/Inteligencja Obliczeniowa/Digit-Recognizer/"
+
+setwd(currentPath)
+trainData <- read.csv("train.csv")
+
+#we will train with 70% of our train data
+n <- nrow(trainData)
+ntrain <- round(0.7*n)
+set.seed(2018)
+index_train <- sample(seq_len(n), size = ntrain)
+#train data
+train_7 <- trainData[index_train,]
+#validation data
+train_3 <- trainData[-index_train,]
+
+##################################################
+####Step 3: extraction and data transformation
+#we will extract labels for a faster and easier access
+label_7 <- train_7[,1]
+label_3 <- train_3[,1]
+
+#then we extract images and convert it to a matrix
+matrix_image_7 <- as.matrix(train_7[,-1]/256)
+matrix_image_3 <- as.matrix(train_3[,-1]/256)
+
+#flatten and convert labels to a matrix
+
+#train data
+label_7 <- data.frame(label_7)
+for(i in c(0:9)){
+  newCol <- ifelse(label_7$label == i,
+                   1,
+                   0)
+  label_7 <- cbind(label_7, newCol)
+}
+names(label_7)[2:11] <- c(0:9)
+matrix_label_7 <- as.matrix(label_7[,-1])
+
+#test data
+label_3 <- data.frame(label_3)
+for(i in c(0:9)){
+  newCol <- ifelse(label_3$label == i,
+                   1,
+                   0)
+  label_3 <- cbind(label_3, newCol)
+}
+names(label_3)[2:11] <- c(0:9)
+matrix_label_3 <- as.matrix(label_3[,-1])
+
+
+##################################################
+####Step 4: building functions
+#first we define functions
+#convolution neural networks are build with layers
+#we will use multiple layers and define different functions for
+#different layers
+
+#filter function
+#[filter_height, filter_width, in_channels, out_channels]
+add_conv_filter <- function(filterShape){ # random filter as Variable
+  filterForConvLayer <- tf$truncated_normal(filterShape, stddev = 0.1) %>% tf$Variable() 
+  return(filterForConvLayer)
+}
+
+#bias function
+add_bias <- function(BiasShape){
+  bias <- tf$constant(0.1, shape = BiasShape) %>% tf$Variable()
+  return(bias)
+}
+
+#convolution layer
+add_convolutionLayer <- function(inputData, filter_weight, activation_function = "None"){
+  conv2dLayer <- tf$nn$conv2d(input = inputData, # input data
+                              # filter should be shape(filter_height, filter_width, in_channels, out_channels)
+                              filter = filter_weight, 
+                              strides = shape(1L, 2L, 2L, 1L), # strides = [1, x_strides, y_strides, 1]
+                              padding = 'SAME'
+  )
+  if(activation_function == "None"){
+    output_result <- conv2dLayer %>% tf$nn$dropout(., keep_prob = keep_prob_s)
+  }else{
+    output_result <- conv2dLayer %>% tf$nn$dropout(., keep_prob = keep_prob_s) %>% activation_function()
+  }
+  return(output_result)
+}
+
+#max pooling layer
+add_maxpoolingLayer <- function(inputData){
+  MaxPooling <- tf$nn$max_pool(inputData, # input data should be [batch, height, width, channels]
+                               ksize = shape(1L, 2L, 2L, 1L), # 2*2 pixels for max pooling
+                               strides = shape(1L, 2L, 2L, 1L), # strides =  [1, x_strides, y_strides, 1]
+                               padding = 'SAME')
+  return(MaxPooling)
+}
+
+#flatten layer
+add_flattenLayer <- function(inputData, numberOfFactors){
+  flatten_layer <- tf$reshape(inputData, shape(-1, numberOfFactors))
+  return(flatten_layer)
+}
+
+#fully connected layer
+add_fullyConnectedLayer <- function(inputData, Weight_FCLayer, bias_FCLayer, activation_function = "None"){
+  Wx_plus_b <- tf$matmul(inputData, Weight_FCLayer)+bias_FCLayer
+  if(activation_function == "None"){
+    FC_output_result <- Wx_plus_b %>% tf$nn$dropout(., keep_prob = keep_prob_s)
+  }else{
+    FC_output_result <- Wx_plus_b %>% tf$nn$dropout(., keep_prob = keep_prob_s) %>% activation_function()
+  }
+  return(FC_output_result)
+}
+
+#accuracy function
+compute_accuracy <- function(model_result, v_xs, v_ys){
+  y_pre <- sess$run(model_result, feed_dict = dict(xs = v_xs, keep_prob_s= 1))
+  correct_prediction <- tf$equal(tf$argmax(y_pre, 1L), tf$argmax(v_ys, 1L))
+  accuracy <- tf$cast(correct_prediction, tf$float32) %>% tf$reduce_mean(.)
+  result <- sess$run(accuracy, feed_dict = dict(xs = v_xs, ys = v_ys, keep_prob_s= 1))
+  return(result)
+}
+
+##################################################
+####Step 5: Placeholder for our images
+
+xs <- tf$placeholder(tf$float32, shape(NULL, 784L)) #784L because 28x28=784px
+ys <- tf$placeholder(tf$float32, shape(NULL, 10L)) #10L because 0 to 9 = 10
+keep_prob_s <- tf$placeholder(tf$float32)
+x_image <- tf$reshape(xs, shape(-1L, 28L, 28L, 1L)) # [batch, height, width, channels]
+
+
+##################################################
+####Step 6: Structure
+
+#layers in order
+#Convolution layer 1
+#Max pooling layer 1
+#Convolution layer 2
+#Max pooling layer 2
+#flatten layer
+#Fully-connected layer 1
+#Fully-connected layer 2
+
+#Convolution layer 1 
+convolayer1 <- add_convolutionLayer(
+  inputData = x_image,
+  filter_weight = shape(5L, 5L, 1L, 32L) %>% add_conv_filter(),
+  activation_function = tf$nn$relu
+)
+
+#Max pooling layer 1
+maxPooling_1 <- add_maxpoolingLayer(
+  convolayer1
+)
+
+#Convolution layer 2 
+convolayer2 <- add_convolutionLayer(
+  inputData = maxPooling_1, 
+  filter_weight = shape(4L, 4L, 32L, 64L) %>% add_conv_filter(),
+  activation_function = tf$nn$relu
+) 
+
+#Max pooling layer 2 
+maxPooling_2 <- add_maxpoolingLayer(
+  inputData = convolayer2
+)
+
+#Flatten layer
+flatLayer_output <- add_flattenLayer(
+  inputData = maxPooling_2,
+  numberOfFactors = c(2L*2L*64L) %>% as.numeric()
+)
+
+#Fully connected layer 1
+fcLayer_1 <- add_fullyConnectedLayer(
+  inputData = flatLayer_output,
+  Weight_FCLayer = shape(2L*2L*64L, 1024L) %>% 
+    tf$random_normal(., stddev = 0.1) %>% 
+    tf$Variable(), # Set first layer ouput = 1024
+  bias_FCLayer = shape(1024L) %>% add_bias(),
+  activation_function = tf$nn$relu
+)
+#Fully connected layer 2
+output_result <- add_fullyConnectedLayer(
+  inputData = fcLayer_1,
+  Weight_FCLayer = shape(1024L, 10L) %>% 
+    tf$random_normal(., stddev = 0.1) %>% 
+    tf$Variable(), # Set output layer ouput = 10 labels
+  bias_FCLayer = shape(10L) %>% add_bias(),
+  activation_function = tf$nn$softmax
+)
+
+##################################################
+####Step 7: Loss function and training settings
+
+#Loss function (cross entropy)
+cross_entropy <- tf$reduce_mean(-tf$reduce_sum(ys*tf$log(output_result), reduction_indices = 1L))
+
+learning_rate <- 0.001 # Set learning rate = 0.001
+train_step_by_GD <- tf$train$AdamOptimizer(learning_rate)$minimize(cross_entropy)
+
+
+##################################################
+####Step 8: Training
+
+#session settings
+sess <- tf$Session()
+init <- tf$global_variables_initializer()
+sess$run(init)
+saver <- tf$train$Saver() #saving model
+
+#loading old model, add ### if you want to create new one or remove old files
+saver$restore(sess, paste(currentPath,"model/model.ckpt", sep = ""))
+
+#graph variables
+train_accuracy <- NULL
+validation_accuracy <- NULL
+
+
+
+#run
+start_time=Sys.time()
+iterations = 1000
+for (i in 1:iterations){
+  batch_seq <- round(100) %>% sample(seq_len(nrow(matrix_label_7)), size = .) 
+  batches_xs <- matrix_image_7[batch_seq,]
+  batches_ys <- matrix_label_7[batch_seq,]
+  sess$run(train_step_by_GD, feed_dict = dict(xs = batches_xs, ys = batches_ys, keep_prob_s= 0.95))
+  if(i %% 25 == 0 || i == 1 || i == 5 || i == 10){
+	tra_acc = compute_accuracy(output_result, matrix_image_7, matrix_label_7)
+	val_acc = compute_accuracy(output_result, matrix_image_3, matrix_label_3)
+	
+	train_accuracy = rbind(train_accuracy, c(tra_acc,i))
+	validation_accuracy = rbind(validation_accuracy, c(val_acc,i))
+  
+    print(paste("Step =", i, "|| Training Accuracy =", tra_acc, sep = " "))
+    print(paste("Step =", i, "|| Validation Accuracy =", val_acc, sep = " "))
+    print("=================================================")
+  }
+  if(i==iterations)
+  {
+	#saving model to a file
+	save_path <- saver$save(sess, paste(currentPath,"model/model.ckpt", sep = ""))
+	print("Train data saved to file!")
+  }
+}
+end_time=Sys.time()
+print(paste("Training finished in minutes: ",difftime(end_time,start_time, units = "mins")))
+  
+  
+#GRAPH 
+plot(x=validation_accuracy[,2],y=validation_accuracy[,1],type="l",main=paste(iterations," - iterations CNN",sep='')
+,xlab="steps",ylab="accuracy",col="red",xlim=range(0:iterations),ylim=range(0.75:1))
+lines(x=train_accuracy[,2],y=train_accuracy[,1], type = "l", col="green")
+
+legend("bottom", legend = c("Validation","Training")
+, col = c("red","green")
+,ncol = 1, cex = 1, lty=1, lwd=1)
+
+##################################################
+####Step 9: Predicting test data
+
+testData <- read.csv("test.csv")
+testData <- as.matrix(testData)
+
+Kaggle_Running <- sess$run(output_result, feed_dict = dict(xs = testData, keep_prob_s = 1))
+
+Kaggle_Running <- data.frame(Kaggle_Running)
+names(Kaggle_Running) <- paste(c(0:9))
+Kaggle_answer <- c()
+for(i in 1:nrow(Kaggle_Running)){
+  n_answer <- names(which.max(Kaggle_Running[i,]))
+  Kaggle_answer <- c(Kaggle_answer, n_answer)
+}
+
+id <- seq(1,nrow(testData))
+
+format_answer <- cbind(strtoi(id),strtoi(Kaggle_answer))
+colnames(format_answer) <- c("ImageId","Label")
+
+#Saving an answer to a file
+write.csv(format_answer, "format_answer.csv", row.names=FALSE,quote = FALSE)
